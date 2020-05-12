@@ -7,115 +7,100 @@
  * KAIO
  */
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
 #include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <fcntl.h>
-
-#include <sys/eventfd.h>
-#include <linux/types.h>
-#include <sys/syscall.h>
 #include <libaio.h>
+#include <linux/types.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/eventfd.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "utils.h"
 
 #ifndef BUFSIZ
-	#define BUFSIZ		4096
+#define BUFSIZ 4096
 #endif
 
 /* file names */
-static char *files[] = {
-	"/tmp/slo.txt",
-	"/tmp/oer.txt",
-	"/tmp/rse.txt",
-	"/tmp/ufver.txt"
-};
+static char *files[] = {"/tmp/slo.txt", "/tmp/oer.txt", "/tmp/rse.txt",
+                        "/tmp/ufver.txt"};
 
 
-/* TODO 2 - Uncomment this to use eventfd */
 /* #define USE_EVENTFD	1 */
 
 /* eventfd file descriptor */
 int efd;
 
-
 /* file descriptors */
 static int *fds;
 static char g_buffer[BUFSIZ];
 
-static void open_files(void)
-{
-	size_t n_files = sizeof(files) / sizeof(files[0]);
-	size_t i;
+static void open_files(void) {
+    size_t n_files = sizeof(files) / sizeof(files[0]);
+    size_t i;
 
-	fds = malloc(n_files * sizeof(int));
-	DIE(fds == NULL, "malloc");
+    fds = malloc(n_files * sizeof(int));
+    DIE(fds == NULL, "malloc");
 
-	for (i = 0; i < n_files; i++) {
-		fds[i] = open(files[i], O_CREAT | O_WRONLY | O_TRUNC, 0666);
-		DIE(fds[i] < 0, "open");
-	}
+    for (i = 0; i < n_files; i++) {
+        fds[i] = open(files[i], O_CREAT | O_WRONLY | O_TRUNC, 0666);
+        DIE(fds[i] < 0, "open");
+    }
 }
 
-static void close_files(void)
-{
-	size_t n_files = sizeof(files) / sizeof(files[0]);
-	size_t i;
-	int rc;
+static void close_files(void) {
+    size_t n_files = sizeof(files) / sizeof(files[0]);
+    size_t i;
+    int rc;
 
-	for (i = 0; i < n_files; i++) {
-		rc = close(fds[i]);
-		DIE(rc < 0, "close");
-	}
+    for (i = 0; i < n_files; i++) {
+        rc = close(fds[i]);
+        DIE(rc < 0, "close");
+    }
 
-	free(fds);
+    free(fds);
 }
 
 /*
  * init buffer with random data
  */
-static void init_buffer(void)
-{
-	size_t i;
+static void init_buffer(void) {
+    size_t i;
 
-	srand(time(NULL));
+    srand(time(NULL));
 
-	for (i = 0; i < BUFSIZ; i++)
-		g_buffer[i] = (char) rand();
+    for (i = 0; i < BUFSIZ; i++) g_buffer[i] = (char)rand();
 }
-
 
 /*
  * wait for asynchronous I/O operations
  * (eventfd or io_getevents)
  */
-static void wait_aio(io_context_t ctx, int nops)
-{
-	struct io_event *events;
-	u_int64_t efd_ops = 0;
-	int rc, i;
+static void wait_aio(io_context_t ctx, int nops) {
+    struct io_event *events;
+    u_int64_t efd_ops = 0;
+    int rc, i;
 
-	/* alloc structure */
-	events = malloc(sizeof(*events));
-	
+    /* alloc structure */
+    events = malloc(sizeof(*events));
+
 #ifndef USE_EVENTFD
-	/* TODO 1 - wait for async operations to finish
-	 *
-	 *	Use only io_getevents()
-	 */
+    /* wait for async operations to finish */
+	rc = io_getevents(ctx, nops, nops, events, NULL);
+	DIE(rc < 0, "io_getevents failed");
 
 #else
-	/* TODO 2 - wait for async operations to finish
-	 *
-	 *	Use eventfd for completion notify
-	 */
+    /* TODO 2 - wait for async operations to finish
+     *
+     *	Use eventfd for completion notify
+     */
 
 #endif
-
 }
 
 /*
@@ -123,60 +108,61 @@ static void wait_aio(io_context_t ctx, int nops)
  *	io_getevents(2), io_destroy(2))
  */
 
-static void do_io_async(void)
-{
-	size_t n_files = sizeof(files) / sizeof(files[0]);
-	size_t i;
-	io_context_t ctx = 0;
-	struct iocb *iocb;
-	struct iocb **piocb;
-	int n_aio_ops, rc;
+static void do_io_async(void) {
+    size_t n_files = sizeof(files) / sizeof(files[0]);
+    size_t i;
+    io_context_t ctx = 0;
+    struct iocb *iocb;
+    struct iocb **piocb;
+    int n_aio_ops, rc;
 
-	/* allocate iocb and piocb */
-	iocb = malloc(sizeof(*iocb));
-	piocb = &iocb;
+    /* allocate iocb and piocb */
+    iocb = malloc(sizeof(*iocb) * n_files);
+    piocb = malloc(sizeof(iocb) * n_files);
 
-	for (i = 0; i < n_files; i++) {
-		/* TODO 1 - initialiaze iocb and piocb */
-
+    for (i = 0; i < n_files; i++) {
+        /* initialiaze iocb and piocb for reading */
+		piocb[i] = &iocb[i];
+        io_prep_pwrite(piocb[i], fds[i], g_buffer, BUFSIZ, 0);
 
 #ifdef USE_EVENTFD
-		/* TODO 2 - set up eventfd notification */
+        /* TODO 2 - set up eventfd notification */
 
 #endif
-	}
+    }
 
-	/* TODO 1 - setup aio context */
+    /* setup aio context */
+    rc = io_setup(n_files, &ctx);
+    DIE(rc < 0, "io_setup failed");
 
+    /* submit aio */
+	rc = io_submit(ctx, n_files, piocb);
+	DIE(rc < 0, "io_submit failed");
 
-	/* TODO 1 - submit aio */
+    /* wait for completion*/
+    wait_aio(ctx, n_files);
 
-
-	/* wait for completion*/
-	wait_aio(ctx, n_files);
-
-
-	/* TODO 1 - destroy aio context */
-
+    /* destroy aio context */
+	rc = io_destroy(ctx);
+	DIE(rc < 0, "io_destroy failed");
 }
 
-int main(void)
-{
-	open_files();
-	init_buffer();
+int main(void) {
+    open_files();
+    init_buffer();
 
 #ifdef USE_EVENTFD
-	/* TODO 2 - init eventfd */
+    /* TODO 2 - init eventfd */
 
 #endif
 
-	do_io_async();
+    do_io_async();
 
 #ifdef USE_EVENTFD
-	/* TODO 2 - close eventfd */
+    /* TODO 2 - close eventfd */
 
 #endif
-	close_files();
+    close_files();
 
-	return 0;
+    return 0;
 }
