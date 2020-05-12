@@ -69,49 +69,49 @@ static int server(void) {
     for (i = 0; i < CLIENT_COUNT; i++) {
         rc = close(pipes[i][PIPE_WRITE]);
         DIE(rc < 0, "close failed");
+
         ev.events = EPOLLIN;
         ev.data.fd = pipes[i][PIPE_READ];
         epoll_ctl(efd, EPOLL_CTL_ADD, pipes[i][PIPE_READ], &ev);
     }
 
-    /* add eventfd in epoll*/
+    /* add eventfd in epoll */
     ev.events = EPOLLIN;
     ev.data.fd = event_fd;
     epoll_ctl(efd, EPOLL_CTL_ADD, event_fd, &ev);
 
     /* number of received messages */
     recv_msgs = 0;
-	
+
     while (recv_msgs < CLIENT_COUNT) {
-        printf("SERVER: waiting for messages (recv_msgs = %i)\n", recv_msgs);
+        printf("server: waiting for messages (recv_msgs = %i)\n", recv_msgs);
         /* use epoll to wait to read from pipes */
-        rc = epoll_wait(efd, &ev, CLIENT_COUNT * 4, -1);
-		DIE(rc < 0, "epoll_wait failed");
+        rc = epoll_wait(efd, &ev, 1, -1);
+        DIE(rc < 0, "epoll_wait failed");
 
-		if (rc >= 0) {
-			printf("there were %d descriptors ready\n", rc);
-		}
+        if (ev.data.fd == event_fd && (ev.events & EPOLLIN)) {
+            recv_count = read(ev.data.fd, &event, sizeof(event));
+            DIE(recv_count < 0, "read failed");
 
-        if (ev.data.fd == event_fd) {
-            recv_count = read(ev.data.fd, msg, 8);
-            uint64_t e = *(uint64_t *)msg;
+            printf("server: received MAGIC exit 0x%lx\n", get_index(event));
 
-            printf("SERVER: received MAGIC exit 0x%lx\n", e);
-            
-			rc = epoll_ctl(efd, EPOLL_CTL_DEL, pipes[get_index(e)][PIPE_READ], &ev);
-			DIE(rc < 0, "epoll_ctl failed");
+            rc = epoll_ctl(efd, EPOLL_CTL_DEL,
+                           pipes[get_index(event)][PIPE_READ], &ev);
+            DIE(rc < 0, "epoll_ctl failed");
 
-            close(get_index(e));
-			recv_msgs++;
+            rc = close(pipes[get_index(event)][PIPE_READ]);
+            DIE(rc < 0, "close failed");
+
+            recv_msgs++;
         } else {
             recv_count = read(ev.data.fd, msg, MSG_SIZE);
             DIE(recv_count < 0, "read");
 
             msg[recv_count] = '\0';
-            printf("SERVER: received:%s\n", msg);
+            printf("server: received:%s\n", msg);
         }
     }
-    printf("SERVER: going to wait for clients to end\n");
+    printf("server: going to wait for clients to end\n");
 
     for (i = 0; i < CLIENT_COUNT; ++i) {
         rc = waitpid(ANY, &status, 0);
@@ -127,17 +127,17 @@ static int client(unsigned int index) {
     int rand_no, rc;
     uint64_t event = 0;
 
+    sleep(1);
     /* Close read pipe head, wait random time and send a message */
-    //printf("client %i: started\n", index);
+    printf("client%i: started\n", index);
 
     rc = close(pipes[index][PIPE_READ]);
     DIE(rc < 0, "close failed");
 
     srandom(index);
-
     sleep(random() % 10);
 
-    //printf("client %i: writing message\n", index);
+    printf("client%i: writing message\n", index);
 
     memset(msg, 0, MSG_SIZE);
     rand_no = (char)(random() % 30);
@@ -146,21 +146,18 @@ static int client(unsigned int index) {
     DIE(rc < 0, "write");
 
 #ifdef USE_EVENTFD
-    /* Init event (see set_event()) and use it to signal the
-     * server of our termination
-     */
+    /* init evenfd event */
     set_event(index, &event);
     rc = write(event_fd, &event, sizeof(event));
 
-    printf("CLIENT%d:sending MAGIC exit = 0x%lx\n", index,
+    printf("client%d:sending MAGIC exit = 0x%lx\n", index,
            (unsigned long)event);
 
 #endif
 
-    //printf("client %i: exiting\n", index);
+    printf("client %i: exiting\n", index);
     rc = close(pipes[index][PIPE_WRITE]);
     DIE(rc < 0, "close");
-
     return 0;
 }
 

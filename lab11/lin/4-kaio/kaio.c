@@ -99,8 +99,9 @@ static void wait_aio(io_context_t ctx, int nops)
 	u_int64_t efd_ops = 0;
 	int rc, i;
 
-	/* TODO 1 - alloc structure */
-
+	/* alloc structure */
+	events = malloc(sizeof(*events));
+	
 #ifndef USE_EVENTFD
 	/* TODO 1 - wait for async operations to finish
 	 *
@@ -131,7 +132,9 @@ static void do_io_async(void)
 	struct iocb **piocb;
 	int n_aio_ops, rc;
 
-	/* TODO 1 - allocate iocb and piocb */
+	/* allocate iocb and piocb */
+	iocb = malloc(sizeof(*iocb));
+	piocb = &iocb;
 
 	for (i = 0; i < n_files; i++) {
 		/* TODO 1 - initialiaze iocb and piocb */
